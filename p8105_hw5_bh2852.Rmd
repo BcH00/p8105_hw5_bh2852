@@ -10,6 +10,7 @@ output: github_document
 library(tidyverse)
 library(p8105.datasets)
 library(viridis)
+library(ggplot2)
 
 knitr::opts_chunk$set(
 	echo = TRUE,
@@ -127,26 +128,20 @@ read_all = function(csv, path = "./data/") {
 long_study =  
   data_col |> 
   mutate(nested_data = map(data_col$filename, read_all)) |> 
-  #list of datasets to apply read_all function to
   unnest(nested_data) |> 
-  #unnests data into all 8 columns
   mutate(arm_subject = map_chr(.x = filename, ~ unlist(str_split(.x, "\\.") ) [[1]] )) |> 
-  #create new column to rename subjects by splitting with '.' and using only the first part
   mutate(arm = map_chr(.x = arm_subject, ~ unlist(str_split(.x, "_") ) [[1]] )) |> 
   mutate(subject_id = map_chr(.x = arm_subject, ~ unlist(str_split(.x, "_") ) [[2]] )) |> 
-  #separate into arm and subject id columns
   select(-filename, -arm_subject)
-  #only keep necessary columns of tidy dataset
 ```
 
 
 ```{r tidying and plotting}
-#pivot longer data in order to create graph over time
 pivot_longer = 
   long_study |> 
   pivot_longer(week_1:week_8,
                names_to = "week",
-               names_prefix = "week_", #removes the week prefix in the week values
+               names_prefix = "week_", #removes the week prefix
                values_to = "value") |> 
   mutate(week = as.integer(week))
 
@@ -164,7 +159,7 @@ spaghetti_plot
 
 
 ```{r Set Parameters}
-set.seed(1)
+set.seed(114)
 
 n <- 30
 sigma <- 5
@@ -175,7 +170,7 @@ mius <- c(0, 1, 2, 3, 4, 5, 6)
 
 
 ```{r Define functions for miu and sigma}
-sim_mean_sd = function(n, miu, sigma) {
+sim_mean_sd = function(n = 30, miu, sigma = 5) {
   simulation = tibble(
     x = rnorm(n, mean = miu, sd = sigma),
   )
@@ -189,10 +184,10 @@ sim_mean_sd = function(n, miu, sigma) {
 ```
 
 
-```{r Define a function for the t-test}
+```{r Define a function for the t-test and simulation when x = 0}
 perform_t_test <- function(n, miu, sigma) {
   sample <- rnorm(n, mean = miu, sd = sigma)
-  test_result <- t.test(sample, mu = 0)
+  test_result <- t.test(sample, miu = 0)
   broom::tidy(test_result)
 }
 ```
@@ -218,14 +213,12 @@ for (miu in mius) {
 ```
 
 
-```{r Estimated data}
+```{r Power data for plot 1}
 power_results <- results |> 
   group_by(miu) |> 
-  summarise(power = mean(reject), 
-            avg_miu_hat = mean(miu_hat), 
-            avg_miu_hat_rejected = mean(miu_hat[reject]))
+  summarise(power = mean(reject))
 ```
-  
+
 
 ```{r Plot1}
 power_results |> 
@@ -236,47 +229,28 @@ power_results |>
 ```
 This graph shows the relation between the proportion of times that null was rejected on the y axis and true mean of μ on the x axis. As the true mean increases, the proportion of times that null will be rejected increases, thus the power of the test increases and approaches 1. This means that the larger the true means, the easier to reject the null hypothesis, thus having greater power.
 
-```{r}
 
+```{r}
 estimates_data <-
-  sim_results |> 
+  results |> 
   group_by(miu) |> 
   summarize(avg_miu_hat = mean(miu_hat))
 
 estimates_rejection_df =
-  sim_results |> 
-  mutate(decision = ifelse(p.value < 0.05, "reject", "fail to reject")) |> 
+  results |> 
+  mutate(decision = ifelse(p_value < 0.05, "reject", "fail to reject")) |> 
   filter(decision == "reject") |> 
   group_by(miu, decision) |> 
   summarize(avg_miu_hat_rejected = mean(miu_hat))
 ```
 
-```{r}
-plot2 = 
-  ggplot() + 
-  geom_point(data = estimates_data, aes(x = mu_vals, y = sample_mean_estimates, color = "True Estimate")) + 
-  geom_line(data = estimates_data, aes(x = mu_vals, y = sample_mean_estimates, color = "True Estimate")) +
-  geom_line(data = estimates_rejection_df, 
-            aes(x = mu_vals, y = sample_mean_estimates, color = "Rejected Estimates")) + 
-  geom_point(data = estimates_rejection_df, 
-             aes(x = mu_vals, y = sample_mean_estimates, color = "Rejected Estimates")) + 
-  labs(x = 'True Mean (μ)', y = 'Sample Mean (μ) Estimates', 
-       title = 'Rejected Average μ vs. True μ', color = "Color Coding:") + 
-  scale_color_manual(values = c("Rejected Estimates" = "tomato", "True Estimate" = "darkgreen")) + 
-  
-plot2
-
-```
-
-
-
 ```{r Plot2 average estimate miu_hat vs miu}
-power_results |> 
+estimates_data |> 
   ggplot(aes(x = miu)) +
   geom_point(aes(y = avg_miu_hat, color = "Average Estimate of μ"), shape = 1) +  
   geom_line(aes(y = avg_miu_hat, color = "Average Estimate of μ")) +
-  geom_point(aes(y = avg_miu_hat_rejected, color = "Conditional Average Estimate of μ"), shape = 2) +
-  geom_line(aes(y = avg_miu_hat_rejected, color = "Conditional Average Estimate of μ"), linetype = "dashed") +
+  geom_point(data = estimates_rejection_df, aes(y = avg_miu_hat_rejected, color = "Rejected Average Estimate of μ"), shape = 2) +
+  geom_line(data = estimates_rejection_df, aes(y = avg_miu_hat_rejected, color = "Rejected Average Estimate of μ"), linetype = "dashed") +
   labs(
     title = "Average Estimated Mean vs. True Mean",
     x = "True Mean (miu)",
@@ -284,6 +258,6 @@ power_results |>
     color = "miu_hat"
   ) +
   scale_color_manual(
-    values = c("Average Estimate of μ" = "blue", "Conditional Average Estimate of μ" = "red")
+    values = c("Average Estimate of μ" = "darkgreen", "Rejected Average Estimate of μ" = "red")
   ) 
 ```
