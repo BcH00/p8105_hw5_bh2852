@@ -188,3 +188,4 @@ estimates_data |>
     values = c("Average Estimate of μ" = "darkgreen", "Rejected Average Estimate of μ" = "red")
   ) 
 ```
+According to the graph, the rejected null average estimate μ have similar result with the true estimate of μ.
